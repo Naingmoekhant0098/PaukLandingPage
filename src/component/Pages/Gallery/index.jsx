@@ -1,225 +1,294 @@
-import React, { useRef, useState } from "react";
-import logo from "./logo.png";
-function Gallery() {
-  const canvasRef = useRef(null);
-  const [photoUrl, setPhotoUrl] = useState(null);
-  const [logoUrl, setLogoUrl] = useState(null);
-  const [combinedImageReady, setCombinedImageReady] = useState(false);
-  const[isReadyDownload,setIsReadyDownload] = useState(false);
-//   const [isGeneratin, setisGenerating] = useState(false);
-  const [isModalShow , setIsModalShow] = useState(false);
-  const [fileName,setFileName] =useState("");
-  const handleFileChange = (e, setImageUrl) => {
-    const file = e.target.files?.[0];
-    console.log(file);
-    if (!file) {
-      alert("Image Not Fount Please Try Again");
-    }
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageUrl(reader.result);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      setImageUrl(null);
-    }
-  };
+"use client"
 
-  const drawImagesOnCanvas = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !photoUrl || !logoUrl) {
-      alert("Please select both a photo and a logo to combine.");
-      return;
+import { useState, useCallback } from "react"
+
+export default function Gallery() {
+  const [mainPhotoFiles, setMainPhotoFiles] = useState([])
+  const [logoFile, setLogoFile] = useState(null)
+  const [combinedImages, setCombinedImages] = useState([])
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [showDownloadModal, setShowDownloadModal] = useState(false)
+  const [currentDownloadUrl, setCurrentDownloadUrl] = useState("")
+  const [currentDownloadFileName, setCurrentDownloadFileName] = useState("")
+
+  const handleMainPhotoChange = useCallback((e) => {
+    if (e.target.files) {
+      setMainPhotoFiles(Array.from(e.target.files))
+      setCombinedImages([]) // Clear previous combined images when new files are selected
+    }
+  }, [])
+
+  const handleLogoChange = useCallback((e) => {
+    if (e.target.files && e.target.files[0]) {
+      setLogoFile(e.target.files[0])
+      setCombinedImages([]) // Clear previous combined images when new logo is selected
+    }
+  }, [])
+
+  const combineAndGenerateImages = async () => {
+    if (mainPhotoFiles.length === 0 || !logoFile) {
+      alert("Please select at least one main photo and a logo to combine.")
+      return
     }
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      alert("Could not get canvas context. Your browser might not support it.");
-      return;
-    }
-    setCombinedImageReady(true);
-
-    const photoImage = new Image();
-    photoImage.crossOrigin = "anonymous";
-    photoImage.src = photoUrl;
-
-    const logoImage = new Image();
-    logoImage.crossOrigin = "anonymous";
-    logoImage.src = logoUrl;
+    setIsGenerating(true)
+    const newCombinedImages = []
 
     try {
-      await Promise.all([
-        new Promise((resolve, reject) => {
-          photoImage.onload = () => resolve();
-          photoImage.onerror = () => reject(new Error("Failed to load photo."));
-        }),
-        new Promise((resolve, reject) => {
-          logoImage.onload = () => resolve();
-          logoImage.onerror = () => reject(new Error("Failed to load logo."));
-        }),
-      ]);
+      const logoImage = new Image()
+      logoImage.crossOrigin = "anonymous" 
+      logoImage.src = URL.createObjectURL(logoFile)
 
-      canvas.width = photoImage.naturalWidth;
-      canvas.height = photoImage.naturalHeight;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(photoImage, 0, 0);
+      await new Promise((resolve, reject) => {
+        logoImage.onload = () => resolve()
+        logoImage.onerror = () => reject(new Error("Failed to load logo image."))
+      })
 
-      const logoX = 30;
-      const logoY = 30;
-      const logoScale = 0.6;
-      const logoWidth = logoImage.naturalWidth * logoScale;
-      const logoHeight = logoImage.naturalHeight * logoScale;
+      for (const mainImageFile of mainPhotoFiles) {
+        const photoImage = new Image()
+        photoImage.crossOrigin = "anonymous"  
+        photoImage.src = URL.createObjectURL(mainImageFile)
 
-      ctx.drawImage(logoImage, logoX, logoY, logoWidth, logoHeight);
+        await new Promise((resolve, reject) => {
+          photoImage.onload = () => resolve()
+          photoImage.onerror = () => reject(new Error(`Failed to load main image: ${mainImageFile.name}`))
+        })
 
-      setCombinedImageReady(false);
-      setIsReadyDownload(true);
+        const canvas = document.createElement("canvas")
+        const ctx = canvas.getContext("2d")
+
+        if (!ctx) {
+          throw new Error("Could not get canvas context. Your browser might not support it.")
+        }
+
+        canvas.width = photoImage.naturalWidth
+        canvas.height = photoImage.naturalHeight
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(photoImage, 0, 0)
+
+       
+        const logoX = 40
+        const logoY = 50
+        const logoScale = 0.5  
+        // const logoWidth = logoImage.naturalWidth * logoScale
+        // const logoHeight = logoImage.naturalHeight * logoScale
+         const logoWidth = 170
+        const logoHeight = 170
+        ctx.globalAlpha =0.5
+        ctx.drawImage(logoImage, logoX, logoY, logoWidth, logoHeight)
+        ctx.globalAlpha=1
+        const combinedImageUrl = canvas.toDataURL("image/png")
+        const fileNameWithoutExtension = mainImageFile.name.split(".").slice(0, -1).join(".") || "combined-image"
+        newCombinedImages.push({ url: combinedImageUrl, name: fileNameWithoutExtension })
+
+     
+        URL.revokeObjectURL(photoImage.src)
+      }
+      URL.revokeObjectURL(logoImage.src)  
+
+      setCombinedImages(newCombinedImages)
     } catch (error) {
-      console.error("Error combining images:", error);
-      alert(
-        "Failed to load one or both images. Please ensure they are valid image files."
-      );
+      console.error("Error combining images:", error)
+      alert(`Failed to combine images: ${error.message}`)
+    } finally {
+      setIsGenerating(false)
     }
-  };
+  }
 
-  const handleDownload = () => {
-    const canvas = canvasRef.current;
-    if (canvas || !combinedImageReady) {
-      const image = canvas.toDataURL("/image/png");
-      const link = document.createElement("a");
-      link.download = `${fileName}.png` ;
-      link.href = image;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setIsModalShow(false);
+  const openDownloadModal = useCallback((url, defaultName) => {
+    setCurrentDownloadUrl(url)
+    setCurrentDownloadFileName(defaultName)
+    setShowDownloadModal(true)
+  }, []);
+
+  const handMultipleDownlaod = useCallback(()=>{
+    // console.log(combinedImages);
+    combinedImages.forEach((file)=>{
+         const url = file.url;
+      const name = file.name;
+     
+      const link = document.createElement("a")
+      link.download = `${name}.png`
+      link.href = url
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+    })
+    
+
+  })
+
+  const handleDownloadConfirm = useCallback(() => {
+    if (currentDownloadUrl && currentDownloadFileName) {
+      const link = document.createElement("a")
+      link.download = `${currentDownloadFileName}.png`
+      link.href = currentDownloadUrl
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      setShowDownloadModal(false)
+      setCurrentDownloadUrl("")
+      setCurrentDownloadFileName("")
     } else {
-      alert("Please combine images first before attempting to download.");
+      alert("No image selected for download or file name is missing.")
     }
-  };
+  }, [currentDownloadUrl, currentDownloadFileName])
+
   return (
-    <div className=" min-h-screen max-h-screen bg-gradient-to-tr from-blue-300  to-blue-100 relative">
-        <div className={` absolute top-0 inset-0 flex justify-center items-center z-50  bg-black/40  transition-all duration-300 ${isModalShow ? " opacity-100 visible" : " hidden opacity-0"}`}>
-                <div className=" bg-white/40 backdrop-blur-sm h-auto  p-5 rounded-lg">
-                    <div >
-                        Enter File Name Here !
-                    </div>
-                    <input type="text" onChange={(e)=>setFileName(e.target.value)} placeholder="File Name"  className=" border mt-4 rounded-md p-3 w-full border-white/40 text-[14px]"/>
-                    <div className=" flex gap-2 mt-6">
-                        <button  disabled={combinedImageReady} onClick={handleDownload}  className="w-full py-3 px-4 bg-white/40 backdrop-blur-sm transition-all duration-300 cursor-pointer text-[15px] text-black/90 font-medium rounded-md shadow-sm
-                     hover:bg-white/60 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                     disabled:opacity-50 disabled:cursor-not-allowed"
-              > Confirm</button>
-                <button onClick={()=>setIsModalShow(false)}   className="w-full py-3 px-4 backdrop-blur-sm transition-all duration-300 cursor-pointer text-[15px] text-black/90 font-medium rounded-md shadow-sm
-                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                     disabled:opacity-50 disabled:cursor-not-allowed"
-              > Close</button>
-                       
-                    </div>
-                </div>
-        </div>
-      <div className=" flex justify-center mt-0 ">
-        <img src={logo} className=" w-40 h-40" alt="" />
-      </div>
-      {/* <div className=' text-center text-lg'>
-        Upload a photo and a logo, then combine them into a single image. 
-        </div> */}
-      <div className=" w-[70%] mx-auto grid grid-cols-2  ">
-        <div>
-          <div className="grid w-full max-w-md gap-6 mb-8 border-r border-gray-300 p-6 ">
+    <div className="min-h-screen bg-gradient-to-tr from-blue-300 to-blue-100 p-6">
+      <h1 className="text-4xl font-bold text-center text-gray-800 mb-8">Image Combiner</h1>
+
+      <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+       
+        <div className="bg-white/70 backdrop-blur-sm p-6 shadow-lg rounded-lg max-h-[610px]">
+          <div className="pb-4 mb-4 border-b border-gray-200">
+            <h2 className="text-2xl font-semibold text-gray-800">Upload Images</h2>
+          </div>
+          <div className="space-y-6">
             <div className="space-y-2">
-              <label
-                htmlFor="photo-upload"
-                className="block text-lg uppercase font-medium text-gray-700"
-              >
-                Upload Main Photo
+              <label htmlFor="main-photo-upload" className="block text-lg font-medium text-gray-700">
+                Upload Main Photos (Multiple)
               </label>
               <input
-                id="photo-upload"
+                id="main-photo-upload"
                 type="file"
-                accept="image/png , image/jpeg"
-                onChange={(e) => handleFileChange(e, setPhotoUrl)}
-                className="block w-full text-sm text-gray-500
-                       file:mr-4 file:py-2 file:px-4
-                       file:rounded-md file:border-0
-                       file:text-sm file:font-semibold
-                       file:bg-blue-50 file:text-blue-700
-                       hover:file:bg-blue-100"
+                accept="image/png, image/jpeg, image/webp"
+                multiple
+                onChange={handleMainPhotoChange}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
-              {photoUrl && (
-                <div className="mt-2 flex justify-center">
-                  <img
-                    src={photoUrl || "/placeholder.svg"}
-                    alt="Uploaded Photo Preview"
-                    className="max-h-50 object-contain rounded-md border border-gray-200 shadow-sm"
-                  />
+              {mainPhotoFiles.length > 0 && (
+                <div className="mt-4 flex gap-2 max-h-48 overflow-y-auto p-2 border border-white/50 rounded-md bg-gray-50">
+                  {mainPhotoFiles.map((file, index) => (
+                    <img
+                      key={index}
+                      src={URL.createObjectURL(file) || "/placeholder.svg"}
+                      alt={`Main Photo Preview ${index + 1}`}
+                      className="max-h-24 object-contain rounded-md border border-gray-200 shadow-sm"
+                    />
+                  ))}
                 </div>
               )}
             </div>
+
             <div className="space-y-2">
-              <label
-                htmlFor="logo-upload"
-                className="block text-lg uppercase font-medium text-gray-700"
-              >
-                Upload Logo
+              <label htmlFor="logo-upload" className="block text-lg font-medium text-gray-700">
+                Upload Logo (Single)
               </label>
               <input
                 id="logo-upload"
                 type="file"
-                accept="image/*"
-                onChange={(e) => handleFileChange(e, setLogoUrl)}
-                className="block w-full text-sm text-gray-500
-                       file:mr-4 file:py-2 file:px-4
-                       file:rounded-md file:border-0
-                       file:text-sm file:font-semibold
-                       file:bg-blue-50 file:text-blue-700
-                       hover:file:bg-blue-100"
+                accept="image/png, image/jpeg, image/webp"
+                onChange={handleLogoChange}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
-              {logoUrl && (
-                <div className="mt-2 flex justify-center">
+              {logoFile && (
+                <div className="mt-2 flex">
                   <img
-                    src={logoUrl || "/placeholder.svg"}
-                    alt="Uploaded Logo Preview"
-                    className="max-h-40 object-contain rounded-md border border-gray-200 shadow-sm"
+                    src={URL.createObjectURL(logoFile) || "/placeholder.svg"}
+                    alt="Logo Preview"
+                    className="max-h-24 object-contain rounded-md border border-gray-200 shadow-sm"
                   />
                 </div>
               )}
             </div>
+
             <button
-              onClick={drawImagesOnCanvas}
-              disabled={!photoUrl || !logoUrl || combinedImageReady}
-              className="w-full py-4 px-8 bg-white/40 backdrop-blur-sm transition-all duration-300 cursor-pointer text-[15px] text-black/90 font-medium rounded-md shadow-sm
-                     hover:bg-white/60 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                     disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={combineAndGenerateImages}
+              disabled={mainPhotoFiles.length === 0 || !logoFile || isGenerating}
+              className="w-full py-3 px-4 text-[14px] rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
             >
-              {!combinedImageReady ? "Combine Images" : "generating...."}
+              {isGenerating ? "Generating..." : "Combine Images"}
             </button>
           </div>
         </div>
-        <div>
-        <label
-                htmlFor="photo-upload"
-                className="block text-lg uppercase mb-3 font-medium text-gray-700"
-              >
-                generated image 
-              </label>
-          <div className="border border-gray-200 rounded-lg min-h-[400px] overflow-hidden shadow-sm mb-8 bg-white/40 backdrop-blur-sm flex justify-center items-center p-2">
-            <canvas ref={canvasRef} className="max-w-full  border-gray-300" />
+
+        
+        <div className="bg-white/70 backdrop-blur-sm p-6 shadow-lg rounded-lg">
+          <div className="pb-4 mb-4 border-b border-gray-200 flex justify-between items-center">
+            <h2 className="text-2xl font-semibold text-gray-800">Generated Images</h2>
+            <button
+               onClick={handMultipleDownlaod}
+               disabled={combinedImages.length == 0|| mainPhotoFiles.length === 0 || !logoFile  ? true  : false}
+              className=" py-3 px-4 text-[14px] rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+            >
+               Download All Images
+            </button>
+           
+                 
           </div>
-          <button
-            onClick={()=>setIsModalShow(true)}
-            disabled={!photoUrl || !logoUrl || !isReadyDownload}
-            className="w-full py-4 px-8 bg-white/40 backdrop-blur-sm transition-all duration-300 cursor-pointer text-[15px] text-black/90 font-medium rounded-md shadow-sm
-                     hover:bg-white/60 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                     disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Download Image
-          </button>
+          <div className="space-y-4">
+            {combinedImages.length === 0 && !isGenerating && (
+              <p className="text-center text-gray-500">Upload images and click "Combine" to see results.</p>
+            )}
+            {isGenerating && (
+              <div className="flex justify-center items-center h-48">
+                <p className="text-gray-600">Combining images, please wait...</p>
+              </div>
+            )}
+            <div className=" flex gap-4  flex-col overflow-y-auto p-2">
+              {combinedImages.map((image, index) => (
+                <div key={index} className="border border-gray-200 rounded-md p-2 bg-white shadow-sm">
+                  <img
+                    src={image.url || "/placeholder.svg"}
+                    alt={`Combined Image ${index + 1}`}
+                    className="w-full h-auto object-contain mb-2 rounded-sm"
+                  />
+                  <p className="text-sm text-gray-700 truncate mb-2">{image.name}.png</p>
+                  <button
+                    onClick={() => openDownloadModal(image.url, image.name)}
+                    className="w-full text-[14px] py-2 px-4 rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-200"
+                  >
+                    Download
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-export default Gallery;
+      
+      {showDownloadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="relative w-full max-w-md rounded-lg bg-white/90 backdrop-blur-sm p-6 shadow-xl">
+            <div className="pb-4 mb-4 border-b border-gray-200">
+              <h3 className="text-xl font-semibold text-gray-800">Enter File Name</h3>
+            </div>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <label htmlFor="fileName" className="text-right text-gray-700">
+                  File Name
+                </label>
+                <input
+                  id="fileName"
+                  type="text"
+                  value={currentDownloadFileName}
+                  onChange={(e) => setCurrentDownloadFileName(e.target.value)}
+                  className="col-span-3 w-full border border-gray-300 rounded-md p-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-gray-200">
+              <button
+                onClick={handleDownloadConfirm}
+                disabled={!currentDownloadFileName}
+                className="py-2 px-4 rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition-colors duration-200"
+              >
+                Confirm  
+              </button>
+              <button
+                onClick={() => setShowDownloadModal(false)}
+                className="py-2 px-4 rounded-md shadow-sm border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors duration-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
